@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import cv2
 import numpy as np
+import requests
 from cv_bridge import CvBridge
 
 import rclpy
@@ -27,17 +28,16 @@ class SegmentationServer(Node):
             response.message = "Failed to convert input image."
             return response
         
-        pt_pos = [request.prompts[0].x, request.prompts[0].y]
-        pt_neg = [request.prompts[1].x, request.prompts[1].y]
-
         # FastAPI request
-
-        # Test fields
-        mask_binary = np.zeros(cv_image.shape[:2], dtype=np.uint8)
+        mask_binary = self.call_sam3_api(cv_image, request.prompts[0], request.prompts[1])
+        if mask_binary is None:
+            response.success = False
+            response.message = "Mask segmentation failed."
+            return response
         area_pixels = cv2.countNonZero(mask_binary)
         
         colored_mask = np.zeros_like(cv_image)
-        colored_mask[mask_binary > 0] = [0,255,0]
+        colored_mask[mask_binary > 0] = [0,0,255]
         combined_image = cv2.addWeighted(cv_image, 0.7, colored_mask, 0.3, 0)
 
         # Populate response
@@ -48,6 +48,28 @@ class SegmentationServer(Node):
 
         self.get_logger().info(f"Sending response.")
         return response
+    
+    def call_sam3_api(self, cv_image, pt_pos, pt_neg):
+        # Encoding RAW image to JPG for faster data transfer
+        _, img_encoded = cv2.imencode('.jpg', cv_image, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+        files = {'image': ('query.jpg', img_encoded.tobytes(), 'image/jpeg')}
+        data = {'pos_x': pt_pos.x, 'pos_y': pt_pos.y, 'neg_x': pt_neg.x, 'neg_y': pt_neg.y}
+
+        api_url = "http://localhost:8000/segment"
+        try:
+            self.get_logger().info(f"Sending request to {api_url}...")
+            response = requests.post(api_url, files=files, data=data, timeout=10.0)
+
+            if response.status_code == 200:
+                mask_bytes = np.frombuffer(response.content, np.uint8)
+                mask_decoded = cv2.imdecode(mask_bytes, cv2.IMREAD_GRAYSCALE)
+                return mask_decoded
+            else:
+                self.get_logger().error(f"API Error {response.status_code}: {response.text}")
+                return None
+        except requests.exceptions.RequestException as e:
+            self.get_logger().info(f"Connection failed: {e}")
+            return None
 
 def main(args=None):
     rclpy.init(args=args)

@@ -108,11 +108,15 @@ class UserInput(Node):
             if response.success:
                 self.get_logger().info(f"SUCCESS! Area= {response.area:.2f} px")
                 self.get_logger().info(f"Server message: {response.message}")
+
+                segmented_frame = self.bridge_.imgmsg_to_cv2(response.user_image, desired_encoding="bgr8")
+                self.display_frame_ = segmented_frame
+                cv2.putText(self.display_frame_, f"Area: {response.area:.1f}px", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
             else:
                 self.get_logger().error(f"FAILUR: {response.message}")
         except Exception as e:
             self.get_logger().error(f"Service call failed: {e}")
-        self.toggle_control_mode()
+        # self.toggle_control_mode()
 
 def main(args=None):
     rclpy.init(args=args)
