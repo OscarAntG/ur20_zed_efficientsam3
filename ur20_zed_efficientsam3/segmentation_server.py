@@ -15,6 +15,7 @@ class SegmentationServer(Node):
         super().__init__("segmentation_server") 
         self.bridge_ = CvBridge()
 
+        self.mask_publisher_ = self.create_publisher(Image, "/active_sam3_mask",10)
         self.prompt_server_ = self.create_service(PromptUser, "prompt_user_service", self.perform_segmentation_callback)
         self.get_logger().info("Segmentation Server node has started!")
 
@@ -42,11 +43,16 @@ class SegmentationServer(Node):
 
         # Populate response
         response.success = True
+
         response.message = "Segmentation complete!"
         response.area = float(area_pixels)
         response.user_image = self.bridge_.cv2_to_imgmsg(combined_image, encoding="bgr8")
 
         self.get_logger().info(f"Sending response.")
+
+        # Publish mask for point cloud
+        self.mask_publisher_.publish(response.user_image)
+
         return response
     
     def call_sam3_api(self, cv_image, pt_pos, pt_neg):

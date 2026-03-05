@@ -23,6 +23,7 @@ class UserInput(Node):
         self.prompts_ = []
 
         self.image_subscriber_ = self.create_subscription(Image, "/zedx/zed_node/rgb/image_rect_color", self.latest_frame_callback, 10)
+        self.mask_publisher_ = self.create_publisher(Image, "/active_sam3_mask", 10)
         self.prompt_client_ = self.create_client(PromptUser, "prompt_user_service")
         self.input_timer_ = self.create_timer(0.1, self.timer_callback)
         self.get_logger().info("User Input node initialized!")
@@ -108,7 +109,6 @@ class UserInput(Node):
             if response.success:
                 self.get_logger().info(f"SUCCESS! Area= {response.area:.2f} px")
                 self.get_logger().info(f"Server message: {response.message}")
-
                 segmented_frame = self.bridge_.imgmsg_to_cv2(response.user_image, desired_encoding="bgr8")
                 self.display_frame_ = segmented_frame
                 cv2.putText(self.display_frame_, f"Area: {response.area:.1f}px", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
