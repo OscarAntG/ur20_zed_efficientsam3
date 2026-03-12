@@ -6,6 +6,7 @@ from cv_bridge import CvBridge
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy, QoSHistoryPolicy
 from geometry_msgs.msg import Point
 from sensor_msgs.msg import Image
 from ur20_zed_interfaces.srv import PromptUser
@@ -15,7 +16,14 @@ class SegmentationServer(Node):
         super().__init__("segmentation_server") 
         self.bridge_ = CvBridge()
 
-        self.mask_publisher_ = self.create_publisher(Image, "/active_sam3_mask",10)
+        mask_qos_profile = QoSProfile(
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL
+        )
+
+        self.mask_publisher_ = self.create_publisher(Image, "/active_sam3_mask",mask_qos_profile)
         self.prompt_server_ = self.create_service(PromptUser, "prompt_user_service", self.perform_segmentation_callback)
         self.get_logger().info("Segmentation Server node has started!")
 
@@ -43,7 +51,6 @@ class SegmentationServer(Node):
 
         # Populate response
         response.success = True
-
         response.message = "Segmentation complete!"
         response.area = float(area_pixels)
         response.user_image = self.bridge_.cv2_to_imgmsg(combined_image, encoding="bgr8")
@@ -51,7 +58,14 @@ class SegmentationServer(Node):
         self.get_logger().info(f"Sending response.")
 
         # Publish mask for point cloud
-        self.mask_publisher_.publish(response.user_image)
+        try:
+            mask_uint8 = (mask_binary > 0).astype(np.uint8)*  255
+            mask_image = self.bridge_.cv2_to_imgmsg(mask_uint8, encoding="mono8")
+            mask_image.header = request.user_image.header
+            self.mask_publisher_.publish(mask_image)
+            self.get_logger().info("Published binary mask.")
+        except Exception as e:
+            self.get_logger().error(f"Failed to publish binary mask: {e}")
 
         return response
     
