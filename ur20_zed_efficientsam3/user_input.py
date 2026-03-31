@@ -7,6 +7,7 @@ from cv_bridge import CvBridge
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Point
+from std_srvs.srv import Trigger
 from sensor_msgs.msg import Image
 from ur20_zed_interfaces.srv import PromptUser
 
@@ -24,6 +25,7 @@ class UserInput(Node):
 
         self.image_subscriber_ = self.create_subscription(Image, "/zedx/zed_node/rgb/image_rect_color", self.latest_frame_callback, 10)
         self.prompt_client_ = self.create_client(PromptUser, "prompt_user_service")
+        self.reset_surface_client_ = self.create_client(Trigger, "reset_surface")
         self.input_timer_ = self.create_timer(0.1, self.timer_callback)
         self.get_logger().info("User Input node initialized!")
         self.get_logger().info("Press ` to take a snapshot.")
@@ -112,11 +114,30 @@ class UserInput(Node):
                 segmented_frame = self.bridge_.imgmsg_to_cv2(response.user_image, desired_encoding="bgr8")
                 self.display_frame_ = segmented_frame
                 cv2.putText(self.display_frame_, f"Area: {response.area:.1f}px", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
+                # Reset surface client processing
+                if self.reset_surface_client_.service_is_ready():
+                    self.get_logger().info("Segmentation mask ready, resetting surface reconstruction...")
+                    reset_request = Trigger.Request()
+                    reset_future = self.reset_surface_client_.call_async(reset_request)
+                    reset_future.add_done_callback(self.reset_response_callback)
+                else:
+                    self.get_logger().warn("Reset surface server not ready, surface will not reset!")
             else:
-                self.get_logger().error(f"FAILUR: {response.message}")
+                self.get_logger().error(f"FAILURE: {response.message}")
         except Exception as e:
             self.get_logger().error(f"Service call failed: {e}")
         # self.toggle_control_mode()
+
+    def reset_response_callback(self, future):
+        try:
+            response = future.result()
+            if response.success:
+                self.get_logger().info(f" Surface Reset: {response.message}")
+            else:
+                self.get_logger().error(f"Surface Reset error: {response.message}")
+        except Exception as e:
+            self.get_logger().error(f"Surface Reset service call failed: {e}")
 
 def main(args=None):
     rclpy.init(args=args)
